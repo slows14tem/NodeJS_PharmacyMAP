@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Naver Map API(submodule에 필요한 모듈 넣기) -->
+  <script type="text/javascript"
+    src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=mxd40p4bol&amp;submodules=geocoder"></script>
+  <!-- Jquery CDN -->
+  <script src="https://code.jquery.com/jquery-3.6.4.js" integrity="sha256-a9jBBRygX1Bh5lt8GZjXDzyOB+bWve9EiO7tROUtj/E="
+    crossorigin="anonymous"></script>
+  <title>위치 기반 약국 정보</title>
+</head>
+
+<body>
+  <div style="margin-top: 20px; margin-bottom: 10px; font-weight: bold;">약국 지도</div>
+  <!-- 지도의 height를 %로 주면 지도가 안뜸 -->
+  <div id="map" style="width:100%; height:600px"></div>
+</body>
+<script>
+  $(document).ready(async function () {
+    let XY = await getLocation();
+    //reverseGeocode -> getLocation의 위치정보를 주소정보로 변환
+    await naver.maps.Service.reverseGeocode({
+      location: new naver.maps.LatLng(XY.lat, XY.lng)
+    }, function (status, response) {
+      let result = response.result;
+      let items = result.items;
+      //서울특별시, 부산광역시 등은 상관없지만 경상남도 양산시 이러면 api호출에 문제 발생
+      let sido_arr = items[0].addrdetail.sido.split(" ");
+      let gugun_arr = items[0].addrdetail.sigugun.split(" ");
+      let sido = "";
+      let gugun = "";
+      if (sido_arr.length == 1) {
+        sido = sido_arr[0];
+        gugun = gugun_arr[0];
+      } else if (sido_arr.length > 1) {
+        sido = sido_arr[0];
+        gugun = sido_arr[1];
+      }
+
+      //데이터 호출 및 지도생성하는 ajax코드
+      $.ajax({
+        url: "/pharmach_list",
+        type: "GET",
+        cache: false,
+        dataType: "json",
+        data: { "Q0": sido, "Q1": gugun, "QT": "", "QN": "", "ORD": "", "pageNo": "1", "numOfRows": "1000" },
+        success: function (data) {
+          //지도 호출
+          //지도를 삽입할 HTML 요소 또는 HTML 요소의 id를 지정합니다.
+          var mapDiv = document.getElementById('map'); // 'map'으로 선언해도 동일
+          var mapOptions = {
+            center: new naver.maps.LatLng(XY.lat, XY.lng),
+            zoom: 17
+          }
+          //옵션 없이 지도 객체를 생성하면 서울 시청을 중심으로 하는 16 레벨의 지도가 생성됩니다.
+          var map = new naver.maps.Map(mapDiv, mapOptions);
+
+          //반복문으로 호출된 데이터에 마커 생성하기
+          data.items.item.forEach(function (it, index) {
+            let dutyName = it.dutyName;  //약국명
+            let dutyAddr = it.dutyAddr;  //주소
+            let dutyTel1 = it.dutyTel1;  //전화번호
+            let dutyTime = "";  //운영시간
+            if (it.dutyTime1s && it.dutyTime1c) {
+              dutyTime += "월요일: " + it.dutyTime1s + " ~ " + it.dutyTime1c + "<br>"
+            }
+            if (it.dutyTime2s && it.dutyTime2c) {
+              dutyTime += "화요일: " + it.dutyTime2s + " ~ " + it.dutyTime2c + "<br>"
+            }
+            if (it.dutyTime3s && it.dutyTime3c) {
+              dutyTime += "수요일: " + it.dutyTime3s + " ~ " + it.dutyTime3c + "<br>"
+            }
+            if (it.dutyTime4s && it.dutyTime4c) {
+              dutyTime += "목요일: " + it.dutyTime4s + " ~ " + it.dutyTime4c + "<br>"
+            }
+            if (it.dutyTime5s && it.dutyTime5c) {
+              dutyTime += "금요일: " + it.dutyTime5s + " ~ " + it.dutyTime5c + "<br>"
+            }
+            if (it.dutyTime6s && it.dutyTime6c) {
+              dutyTime += "토요일: " + it.dutyTime6s + " ~ " + it.dutyTime6c + "<br>"
+            }
+            if (it.dutyTime7s && it.dutyTime7c) {
+              dutyTime += "일요일: " + it.dutyTime7s + " ~ " + it.dutyTime7c + "<br>"
+            }
+            if (it.dutyTime8s && it.dutyTime8c) {
+              dutyTime += "공휴일: " + it.dutyTime8s + " ~ " + it.dutyTime8c + "<br>"
+            }
+
+            let pharmacy_location = new naver.maps.LatLng(it.wgs84Lat, it.wgs84Lon);
+
+            let marker = new naver.maps.Marker({
+              map: map,
+              position: pharmacy_location
+            });
+
+            var contentString = [
+              '<div class="iw_inner">',
+              '   <h3>' + dutyName + '</h3>',
+              '   <p>' + dutyAddr + '<br />',
+              '       ' + dutyTel1 + '<br />',
+              '       ' + dutyTime,
+              '   </p>',
+              '</div>'
+            ].join('');
+
+            var infowindow = new naver.maps.InfoWindow({
+              content: contentString,
+              maxWidth: 440,
+              backgroundColor: "#eee",
+              borderColor: "#2db400",
+              borderWidth: 5,
+              anchorSize: new naver.maps.Size(30, 30),
+              anchorSkew: true,
+              anchorColor: "#eee",
+              pixelOffset: new naver.maps.Point(20, -20)
+            });
+
+            naver.maps.Event.addListener(marker, "click", function (e) {
+              if (infowindow.getMap()) {
+                infowindow.close();
+              } else {
+                infowindow.open(map, marker);
+              }
+            });
+          });
+        },
+        error: function (request, status, error) {
+        }
+      });
+    });
+  });
+
+  //현재 위치를 설정해주는 함수 getLocation 생성
+  async function getLocation() {
+    let XY = new Object();
+    if (navigator.geolocation) {
+      //getCurrentPosition -> 비동기형 함수라서 async, await, promise객체 사용
+      let promise = new Promise((resolve, rejected) => {
+        navigator.geolocation.getCurrentPosition((position) => {
+          resolve(position);  //성공시 position 반환
+        });
+      });
+
+      let position = await promise;
+      XY.lat = position.coords.latitude;
+      XY.lng = position.coords.longitude;
+      return XY;
+    }
+  }
+</script>
+
+</html>
